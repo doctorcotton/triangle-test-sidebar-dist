@@ -4,8 +4,8 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import QRCode from 'qrcode';
 import dayjs from 'dayjs';
-// 通过 Vite 导入字体文件，确保打包后路径正确
-import chineseFontUrl from './assets/NotoSansSC-Regular.ttf?url';
+// 使用完整的 Arial Unicode 字体（包含全部中文字符）
+import chineseFontUrl from './assets/ArialUnicode.ttf?url';
 
 type GroupKey = 'A1' | 'A2' | 'A3' | 'B1' | 'B2' | 'B3';
 
@@ -73,6 +73,17 @@ function parseOptions(raw: unknown): string[] {
 
 // 字体加载：优先使用打包的本地字体，确保离线可用
 let cachedChineseFont: Uint8Array | null = null;
+const FONT_MAGIC_LIST = ['OTTO', 'true', 'typ1', 'wOFF', 'wOF2'];
+
+function isValidFontBytes(bytes: Uint8Array): boolean {
+  if (!bytes || bytes.length < 4) return false;
+  const sigStr = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+  if (FONT_MAGIC_LIST.includes(sigStr)) return true;
+  const sigNum = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+  // TrueType: 0x00010000
+  return sigNum === 0x00010000;
+}
+
 async function loadChineseFont(): Promise<Uint8Array | null> {
   console.log('[Font] 开始加载中文字体...');
   if (cachedChineseFont) {
@@ -89,7 +100,12 @@ async function loadChineseFont(): Promise<Uint8Array | null> {
       const buffer = await res.arrayBuffer();
       console.log('[Font] 获取到 buffer, 大小:', buffer.byteLength, 'bytes');
       if (buffer && buffer.byteLength > 10000) {
-        cachedChineseFont = new Uint8Array(buffer);
+        const bytes = new Uint8Array(buffer);
+        if (!isValidFontBytes(bytes)) {
+          console.error('[Font] 文件签名异常，疑似下载到 HTML/404，而非字体文件');
+          return null;
+        }
+        cachedChineseFont = bytes;
         console.log('[Font] ✓ 本地字体加载成功');
         return cachedChineseFont;
       }
@@ -405,77 +421,213 @@ const App: React.FC = () => {
       const fontIsChinese = Boolean(chineseFontBytes);
       console.log('[PDF] Step 4: 字体嵌入成功, fontIsChinese:', fontIsChinese);
 
-      const pageSize: [number, number] = [842, 595];
+      // 竖版 A4 尺寸
+      const pageSize: [number, number] = [595, 842];
+      const margin = 36;
+
+      // ========== 第一页：摘要页（与前端数据预览一致） ==========
       console.log('[PDF] Step 5: 添加摘要页...');
       const summary = pdfDoc.addPage(pageSize);
-      const margin = 40;
-      const titleSize = 22;
 
-      console.log('[PDF] Step 5a: 绘制标题:', testName || '三点测试');
-      summary.drawText(testName || '三点测试', {
+      // 标题
+      const titleSize = 16;
+      const titleText = testName || '三点测试';
+      console.log('[PDF] Step 5a: 绘制标题:', titleText);
+      summary.drawText(titleText, {
         x: margin,
         y: pageSize[1] - margin - titleSize,
         size: titleSize,
         font,
-        color: rgb(0, 0, 0)
+        color: rgb(0.13, 0.45, 0.85) // 蓝色标题
       });
 
+      // 生成时间
+      const timeY = pageSize[1] - margin - titleSize - 16;
       console.log('[PDF] Step 5b: 绘制生成时间...');
       summary.drawText(`生成时间：${dayjs().format('YYYY/MM/DD HH:mm')}`, {
         x: margin,
-        y: pageSize[1] - margin - titleSize - 18,
-        size: 12,
+        y: timeY,
+        size: 9,
         font,
-        color: rgb(0.2, 0.2, 0.2)
+        color: rgb(0.5, 0.5, 0.5)
       });
 
-      const headerY = pageSize[1] - margin - titleSize - 40;
-      console.log('[PDF] Step 5c: 绘制标注说明...');
-      summary.drawText('样品标注：标品(X) / 待测品(Y)', {
+      // 测试信息区域（测试名称、测试样品、测试类型）- 三栏均分
+      const infoY = timeY - 32;
+      const infoColWidth = (pageSize[0] - margin * 2) / 3;
+      const labelColor = rgb(0.5, 0.5, 0.5);
+      const valueColor = rgb(0.15, 0.15, 0.15);
+
+      console.log('[PDF] Step 5c: 绘制测试信息...');
+      // 测试名称
+      summary.drawText('测试名称', { x: margin, y: infoY, size: 8, font, color: labelColor });
+      summary.drawText(testName || '-', { x: margin, y: infoY - 16, size: 10, font, color: valueColor });
+      // 测试样品
+      summary.drawText('测试样品', { x: margin + infoColWidth, y: infoY, size: 8, font, color: labelColor });
+      summary.drawText(testSampleName || '-', { x: margin + infoColWidth, y: infoY - 16, size: 10, font, color: valueColor });
+      // 测试类型
+      summary.drawText('测试类型', { x: margin + infoColWidth * 2, y: infoY, size: 8, font, color: labelColor });
+      summary.drawText(testSampleType || '-', { x: margin + infoColWidth * 2, y: infoY - 16, size: 10, font, color: valueColor });
+
+      // 表格区域
+      const tableTop = infoY - 52;
+      const tableWidth = pageSize[0] - margin * 2;
+      const colKeyWidth = 50;
+      const colCorrectWidth = 60;
+      const colLayoutWidth = tableWidth - colKeyWidth - colCorrectWidth;
+      const cellPadding = 10;
+      const headerHeight = 32;
+      const rowHeight = 64; // 每行高度（包含排布+标注两行，增加间距）
+
+      // 表头背景
+      console.log('[PDF] Step 5d: 绘制表头...');
+      summary.drawRectangle({
         x: margin,
-        y: headerY,
-        size: 12,
-        font
-      });
-      summary.drawText('排布依据：按各组"选项集合"顺序，正确答案见右', {
-        x: margin,
-        y: headerY - 16,
-        size: 12,
-        font
+        y: tableTop - headerHeight,
+        width: tableWidth,
+        height: headerHeight,
+        color: rgb(0.13, 0.45, 0.85) // 蓝色背景
       });
 
-      let currentY = headerY - 36;
-      const lineHeight = 18;
-      console.log('[PDF] Step 5d: 绘制各组排布信息...');
-      for (const g of groups) {
-        const layout = g.options.join(' / ') || '（缺少选项集合）';
-        console.log(`[PDF]   - ${g.key}: 排布=${layout}, 正确=${g.correct}`);
-        summary.drawText(`${g.key} 排布：${layout}`, {
-          x: margin,
-          y: currentY,
-          size: 12,
-          font
+      // 表头文字（白色，各列居中）
+      const headerTextY = tableTop - headerHeight + 10;
+      // 组别表头居中
+      const headerKey = '组别';
+      const headerKeyWidth = font.widthOfTextAtSize(headerKey, 11);
+      summary.drawText(headerKey, { x: margin + colKeyWidth / 2 - headerKeyWidth / 2, y: headerTextY, size: 11, font, color: rgb(1, 1, 1) });
+      // 排布/标注表头居中
+      const headerLayout = '排布 / 标注';
+      const headerLayoutWidth = font.widthOfTextAtSize(headerLayout, 11);
+      summary.drawText(headerLayout, { x: margin + colKeyWidth + colLayoutWidth / 2 - headerLayoutWidth / 2, y: headerTextY, size: 11, font, color: rgb(1, 1, 1) });
+      // 正确表头居中
+      const headerCorrect = '正确';
+      const headerCorrectWidth = font.widthOfTextAtSize(headerCorrect, 11);
+      summary.drawText(headerCorrect, { x: margin + colKeyWidth + colLayoutWidth + colCorrectWidth / 2 - headerCorrectWidth / 2, y: headerTextY, size: 11, font, color: rgb(1, 1, 1) });
+
+      // 表格内容
+      console.log('[PDF] Step 5e: 绘制各组数据...');
+      let currentY = tableTop - headerHeight;
+      const optionCellWidth = colLayoutWidth / 3;
+
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        const rowTop = currentY;
+        const rowBottom = currentY - rowHeight;
+
+        // 交替行背景
+        if (i % 2 === 1) {
+          summary.drawRectangle({
+            x: margin,
+            y: rowBottom,
+            width: tableWidth,
+            height: rowHeight,
+            color: rgb(0.975, 0.975, 0.975)
+          });
+        }
+
+        // 行分隔线
+        summary.drawLine({
+          start: { x: margin, y: rowBottom },
+          end: { x: margin + tableWidth, y: rowBottom },
+          thickness: 0.5,
+          color: rgb(0.88, 0.88, 0.88)
         });
-        summary.drawText(`正确：${g.correct || '未取到'}`, {
-          x: margin + 320,
-          y: currentY,
+
+        // 组别（蓝色，居中）
+        const cellTextY = rowTop - 26;
+        const keyWidth = font.widthOfTextAtSize(g.key, 12);
+        summary.drawText(g.key, {
+          x: margin + colKeyWidth / 2 - keyWidth / 2,
+          y: cellTextY,
           size: 12,
-          font
+          font,
+          color: rgb(0.13, 0.45, 0.85)
         });
-        currentY -= lineHeight;
+
+        // 排布选项（3列，居中对齐）
+        for (let j = 0; j < 3; j++) {
+          const optX = margin + colKeyWidth + j * optionCellWidth + optionCellWidth / 2;
+          const optVal = g.options[j] || '-';
+          const optWidth = font.widthOfTextAtSize(optVal, 12);
+          summary.drawText(optVal, {
+            x: optX - optWidth / 2,
+            y: cellTextY,
+            size: 12,
+            font,
+            color: rgb(0.15, 0.15, 0.15)
+          });
+
+          // 标注（在选项下方，增加间距）
+          const labelVal = g.sampleLabels[j] || '';
+          if (labelVal) {
+            const isStandard = labelVal === '标品';
+            const labelFontSize = 8;
+            const labelWidth = font.widthOfTextAtSize(labelVal, labelFontSize);
+            const labelBgWidth = labelWidth + 14;
+            const labelBgHeight = 18;
+            const labelBgX = optX - labelBgWidth / 2;
+            const labelBgY = cellTextY - 26;
+
+            // 标注背景（圆角效果用矩形模拟）
+            summary.drawRectangle({
+              x: labelBgX,
+              y: labelBgY,
+              width: labelBgWidth,
+              height: labelBgHeight,
+              color: isStandard ? rgb(0.88, 0.96, 0.90) : rgb(0.96, 0.96, 0.96),
+              borderColor: isStandard ? rgb(0.35, 0.72, 0.45) : rgb(0.82, 0.82, 0.82),
+              borderWidth: 0.8
+            });
+
+            // 标注文字（垂直居中）
+            summary.drawText(labelVal, {
+              x: optX - labelWidth / 2,
+              y: labelBgY + 5,
+              size: labelFontSize,
+              font,
+              color: isStandard ? rgb(0.18, 0.55, 0.28) : rgb(0.45, 0.45, 0.45)
+            });
+          }
+        }
+
+        // 正确答案（蓝色，居中）
+        const correctVal = g.correct || '-';
+        const correctWidth = font.widthOfTextAtSize(correctVal, 13);
+        summary.drawText(correctVal, {
+          x: margin + colKeyWidth + colLayoutWidth + colCorrectWidth / 2 - correctWidth / 2,
+          y: cellTextY,
+          size: 13,
+          font,
+          color: rgb(0.13, 0.45, 0.85)
+        });
+
+        currentY = rowBottom;
       }
+
+      // 表格底部边框
+      summary.drawLine({
+        start: { x: margin, y: currentY },
+        end: { x: margin + tableWidth, y: currentY },
+        thickness: 0.5,
+        color: rgb(0.88, 0.88, 0.88)
+      });
+
       console.log('[PDF] Step 5: 摘要页完成');
 
+      // ========== 第二页：二维码页（横版，8列×6行，每列一个组别，行间有裁剪间距） ==========
       console.log('[PDF] Step 6: 添加二维码页...');
-      const qrPage = pdfDoc.addPage(pageSize);
-      const qrMargin = 16;
-      const cols = 8;
-      const rows = groups.length;
-      const cellW = (pageSize[0] - qrMargin * 2) / cols;
-      const cellH = (pageSize[1] - qrMargin * 2) / rows;
-      const labelSize = 9;
-      const qrSize = Math.min(cellW * 0.8, cellH - labelSize - 10);
-      console.log('[PDF] Step 6: 二维码页参数 - cols:', cols, 'rows:', rows, 'cellW:', cellW, 'cellH:', cellH, 'qrSize:', qrSize);
+      const qrPageSize: [number, number] = [842, 595]; // 横版 A4
+      const qrPage = pdfDoc.addPage(qrPageSize);
+      const qrMargin = 12;
+      const qrCols = 8;
+      const qrRows = groups.length; // 6行（6个组）
+      const rowGap = 8; // 行间裁剪间距
+      const totalRowGap = rowGap * (qrRows - 1); // 总间距
+      const qrCellW = (qrPageSize[0] - qrMargin * 2) / qrCols;
+      const qrCellH = (qrPageSize[1] - qrMargin * 2 - totalRowGap) / qrRows;
+      const qrLabelSize = 8;
+      const qrSize = Math.min(qrCellW - 6, qrCellH - 16);
+      console.log('[PDF] Step 6: 二维码页参数 - cols:', qrCols, 'rows:', qrRows, 'cellW:', qrCellW, 'cellH:', qrCellH, 'qrSize:', qrSize);
 
       console.log('[PDF] Step 7: 生成二维码图片...');
       const qrImages = await Promise.all(
@@ -488,9 +640,8 @@ const App: React.FC = () => {
               margin: 1,
               width: 512
             });
-            console.log(`[PDF]   - ${g.key} 二维码生成成功, dataUrl 长度: ${dataUrl.length}`);
+            console.log(`[PDF]   - ${g.key} 二维码生成成功`);
             const image = await pdfDoc.embedPng(dataUrl);
-            console.log(`[PDF]   - ${g.key} 二维码嵌入成功`);
             return { key: g.key, image };
           } catch (qrErr) {
             console.error(`[PDF]   - ${g.key} 二维码生成/嵌入失败:`, qrErr);
@@ -500,24 +651,34 @@ const App: React.FC = () => {
       );
       console.log('[PDF] Step 7: 所有二维码图片生成完成, 共', qrImages.length, '个');
 
-      console.log('[PDF] Step 8: 绘制二维码到页面...');
+      console.log('[PDF] Step 8: 绘制二维码到页面（8列×6行，行间有间距）...');
+      // 每行是一个组别，每列重复该组的二维码
       groups.forEach((g, rowIdx) => {
         const img = qrImages.find((i) => i.key === g.key)?.image;
-        for (let col = 0; col < cols; col++) {
-          const originX = qrMargin + col * cellW;
-          const originY = pageSize[1] - qrMargin - (rowIdx + 1) * cellH;
+        // 计算当前行的 Y 坐标（包含行间间距）
+        const rowOffsetY = rowIdx * (qrCellH + rowGap);
+
+        for (let col = 0; col < qrCols; col++) {
+          const cellX = qrMargin + col * qrCellW;
+          const cellY = qrPageSize[1] - qrMargin - rowOffsetY - qrCellH;
+
+          // 二维码图片居中
           if (img) {
-            const x = originX + (cellW - qrSize) / 2;
-            const y = originY + (cellH - qrSize - labelSize - 4) / 2 + labelSize + 4;
-            qrPage.drawImage(img, { x, y, width: qrSize, height: qrSize });
+            const imgX = cellX + (qrCellW - qrSize) / 2;
+            const imgY = cellY + (qrCellH - qrSize - 12) / 2 + 12;
+            qrPage.drawImage(img, { x: imgX, y: imgY, width: qrSize, height: qrSize });
           }
-          const label = `${g.key} | 正确：${g.correct || '未取到'}`;
+
+          // 标签：只显示组别（居中）
+          const label = g.key;
+          const labelWidth = font.widthOfTextAtSize(label, qrLabelSize);
+          const labelX = cellX + (qrCellW - labelWidth) / 2;
           qrPage.drawText(label, {
-            x: originX + 4,
-            y: originY + 4,
-            size: labelSize,
+            x: labelX,
+            y: cellY + 3,
+            size: qrLabelSize,
             font,
-            color: rgb(0, 0, 0)
+            color: rgb(0.35, 0.35, 0.35)
           });
         }
       });
