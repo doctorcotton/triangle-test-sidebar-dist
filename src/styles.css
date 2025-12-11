@@ -22,6 +22,34 @@ body {
   max-width: 100%;
 }
 
+.tab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab-btn {
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid #dcdfe6;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  color: #1f2329;
+  transition: all 0.15s;
+}
+
+.tab-btn.active {
+  background: #2253e6;
+  color: #fff;
+  border-color: #2253e6;
+}
+
+.tab-btn:hover:not(.active) {
+  border-color: #2253e6;
+  color: #2253e6;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e5e6eb;
@@ -43,6 +71,24 @@ body {
   font-size: 14px;
   font-weight: 600;
   color: #1f2329;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card-header h2 {
+  margin: 0;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .hint {
@@ -375,6 +421,37 @@ body {
   color: #1f2329;
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.config-item {
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fafbfc;
+}
+
+.config-title {
+  font-weight: 700;
+  color: #2253e6;
+  margin-bottom: 8px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: #8f959e;
+  margin-bottom: 4px;
+}
+
 /* 数据预览 - 表格布局 */
 .preview-table {
   border: 1px solid #e5e6eb;
@@ -431,9 +508,18 @@ body {
   text-align: center;
 }
 
+.col-person {
+  flex: 0 0 90px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2329;
+  text-align: center;
+}
+
 .preview-table-header .col-key,
 .preview-table-header .col-layout,
-.preview-table-header .col-correct {
+.preview-table-header .col-correct,
+.preview-table-header .col-person {
   color: #fff;
   font-weight: 600;
 }
@@ -477,4 +563,124 @@ body {
 
 .layout-labels .sample-label {
   text-align: center;
+}
+
+.md-preview {
+  white-space: pre-wrap;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 12px;
+  border-radius: 8px;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: auto;
+}
+
+/* 可搜索下拉组件 */
+.searchable-select {
+  position: relative;
+  width: 100%;
+}
+
+.searchable-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.searchable-select-trigger .placeholder {
+  color: #8f959e;
+}
+
+.searchable-select-trigger .unmatched {
+  color: #e6a23c;
+  font-size: 12px;
+}
+
+.searchable-select-trigger .arrow {
+  color: #8f959e;
+  font-size: 10px;
+  margin-left: 8px;
+}
+
+.searchable-select-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  z-index: 100;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.searchable-select-search {
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid #e5e6eb;
+  font-size: 13px;
+  outline: none;
+}
+
+.searchable-select-search:focus {
+  border-bottom-color: #2253e6;
+}
+
+.searchable-select-options {
+  overflow-y: auto;
+  max-height: 220px;
+}
+
+.searchable-select-option {
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchable-select-option:hover {
+  background: #f0f4ff;
+}
+
+.searchable-select-option.selected {
+  background: #e8f0ff;
+  color: #2253e6;
+  font-weight: 500;
+}
+
+.searchable-select-empty {
+  padding: 16px;
+  text-align: center;
+  color: #8f959e;
+  font-size: 13px;
+}
+
+/* 滚动条美化 */
+.searchable-select-options::-webkit-scrollbar {
+  width: 6px;
+}
+
+.searchable-select-options::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 3px;
+}
+
+.searchable-select-options::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+
+.searchable-select-options::-webkit-scrollbar-thumb:hover {
+  background: #909399;
 }
