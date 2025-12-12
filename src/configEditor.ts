@@ -50,7 +50,6 @@ export const DEFAULT_IDS = {
   STAT_CORRECT_B3: 'fld59KLDB3',
   REPORT_TABLE_ID: 'tblZSyNrU9rdiX0R',
   REPORT_FIELD_ID: 'fldD58x9LP',
-  REPORT_RECORD_ID_DEFAULT: 'recv4F9BrUqUpJ',
   REPORT_CONCLUSION_FIELD_ID: 'fldbp62Xzq', // 测试结论字段ID
   PDF_ATTACHMENT_FIELD_ID: 'fldTp1OsR3' // 测试方案附件字段ID
 };
@@ -112,8 +111,7 @@ function buildDefaultConfigItems(): ConfigItem[] {
   list.push(
     { key: 'REPORT_TABLE_ID', value: DEFAULT_IDS.REPORT_TABLE_ID, category: '报告写入', desc: '报告写入表 ID' },
     { key: 'REPORT_FIELD_ID', value: DEFAULT_IDS.REPORT_FIELD_ID, category: '报告写入', desc: '报告写入字段 ID' },
-    { key: 'REPORT_CONCLUSION_FIELD_ID', value: DEFAULT_IDS.REPORT_CONCLUSION_FIELD_ID, category: '报告写入', desc: '测试结论字段 ID' },
-    { key: 'REPORT_RECORD_ID_DEFAULT', value: DEFAULT_IDS.REPORT_RECORD_ID_DEFAULT, category: '报告写入', desc: '默认写入记录 ID' }
+    { key: 'REPORT_CONCLUSION_FIELD_ID', value: DEFAULT_IDS.REPORT_CONCLUSION_FIELD_ID, category: '报告写入', desc: '测试结论字段 ID' }
   );
   // PDF模式 - 测试方案附件字段
   list.push(

@@ -20,7 +20,6 @@ interface UseStatModeParams {
   reportTableId: string;
   reportFieldId: string;
   reportConclusionFieldId: string;
-  reportRecordIdDefault: string;
   pdfTableId: string;
   pdfViewId: string;
   primaryFieldId: string;
@@ -41,7 +40,6 @@ export function useStatMode({
   reportTableId,
   reportFieldId,
   reportConclusionFieldId,
-  reportRecordIdDefault,
   pdfTableId,
   pdfViewId,
   primaryFieldId,
@@ -182,12 +180,6 @@ export function useStatMode({
     }
     return '';
   }, [statSummary.total, statExpectedTotal, effectiveStatGroupSize]);
-
-  useEffect(() => {
-    if (!statWriteRecordId) {
-      setStatWriteRecordId(reportRecordIdDefault);
-    }
-  }, [reportRecordIdDefault, statWriteRecordId]);
 
   const loadStatData = useCallback(async () => {
     setStatError('');
@@ -439,9 +431,9 @@ export function useStatMode({
         targetRecordId = matchedRecordId;
       }
 
-      // 如果找不到，使用手动输入的记录ID或默认记录ID
+      // 如果找不到，使用手动输入的记录ID
       if (!targetRecordId) {
-        targetRecordId = statWriteRecordId.trim() || reportRecordIdDefault;
+        targetRecordId = statWriteRecordId.trim();
         if (!targetRecordId) {
           setStatError('未找到对应记录，请填写报告写入的记录 ID');
           setStatStatus('');
@@ -469,13 +461,13 @@ export function useStatMode({
         }
       }
 
-      setStatStatus(`报告已成功写入到记录${targetRecordId === statWriteRecordId.trim() || targetRecordId === reportRecordIdDefault ? '' : `（${targetRecordId}）`}`);
+      setStatStatus(`报告已成功写入到记录${targetRecordId === statWriteRecordId.trim() ? '' : `（${targetRecordId}）`}`);
     } catch (err) {
       console.error('[stat] 写入报告失败', err);
       setStatError('写入失败，请检查记录 ID/字段权限');
       setStatStatus('');
     }
-  }, [statReportMd, statWriteRecordId, reportRecordIdDefault, reportTableId, reportFieldId, reportConclusionFieldId, selectedTestName, pdfTableId, pdfViewId, primaryFieldId, selectedStatRecords, statTestType, statGroupSize, statCountWarning, statSampleName]);
+  }, [statReportMd, statWriteRecordId, reportTableId, reportFieldId, reportConclusionFieldId, selectedTestName, pdfTableId, pdfViewId, primaryFieldId, selectedStatRecords, statTestType, statGroupSize, statCountWarning, statSampleName]);
 
   return {
     statRecords,

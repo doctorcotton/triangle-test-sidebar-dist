@@ -23,7 +23,6 @@ const App: React.FC = () => {
     reportTableId: config.reportTableId,
     reportFieldId: config.reportFieldId,
     reportConclusionFieldId: config.reportConclusionFieldId,
-    reportRecordIdDefault: config.reportRecordIdDefault,
     pdfTableId: config.pdfTableId,
     pdfViewId: config.pdfViewId,
     primaryFieldId,

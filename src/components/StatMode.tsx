@@ -16,7 +16,6 @@ interface StatModeProps {
   reportTableId: string;
   reportFieldId: string;
   reportConclusionFieldId: string;
-  reportRecordIdDefault: string;
   pdfTableId: string;
   pdfViewId: string;
   primaryFieldId: string;
@@ -75,7 +74,6 @@ export const StatMode: React.FC<StatModeProps> = (props) => {
               className="input"
               value={stat.statWriteRecordId}
               onChange={(e) => stat.setStatWriteRecordId(e.target.value)}
-              placeholder={props.reportRecordIdDefault}
               style={{ minWidth: 200 }}
             />
           </div>

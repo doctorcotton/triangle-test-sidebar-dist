@@ -53,12 +53,35 @@ const ConfigMode: React.FC<ConfigModeProps> = ({
   const renderFieldSelect = (item: any) => {
     const tableId = getVal(item.tableKey || '');
     let options = (tableId && fieldMap[tableId]) || [];
+    
+    // 提取组别信息（A1, A2, A3, B1, B2, B3）
+    const groupMatch = item.key.match(/\b(A[1-3]|B[1-3])\b/);
+    const groupKey = groupMatch ? groupMatch[1] : null;
+    
     // 如果指定了字段类型限制，则过滤字段
     if (item.fieldType !== undefined && options.length > 0) {
       options = options.filter((opt: any) => opt.type === item.fieldType);
     }
+    
+    // 如果有关联组别，则进一步过滤出名称或ID中包含该组别的字段
+    if (groupKey && options.length > 0) {
+      const groupPattern = new RegExp(groupKey, 'i');
+      options = options.filter((opt: any) => 
+        groupPattern.test(opt.name) || groupPattern.test(opt.id)
+      );
+    }
+    
     const val = getVal(item.key);
-    return <SearchableSelect options={options} value={val} onChange={(v) => handleChange(item.key, v)} placeholder={item.fieldType === 17 ? "请选择附件字段" : "请选择字段"} />;
+    let placeholder = "请选择字段";
+    if (item.fieldType === 17) {
+      placeholder = "请选择附件字段";
+    } else if (item.fieldType === 3) {
+      placeholder = "请选择文本字段";
+    } else if (groupKey) {
+      placeholder = `请选择${groupKey}相关字段`;
+    }
+    
+    return <SearchableSelect options={options} value={val} onChange={(v) => handleChange(item.key, v)} placeholder={placeholder} />;
   };
   const renderViewSelect = (item: any) => {
     const tableId = getVal(item.tableKey || '');
