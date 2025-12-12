@@ -270,18 +270,9 @@ export async function buildPdf({
     });
 
     // ========== 第二页：二维码页 ==========
-    console.log('[PDF] Step 6: 添加二维码页...');
-    const qrPageSize: [number, number] = [842, 595]; // 横版 A4
-    const qrPage = pdfDoc.addPage(qrPageSize);
     const qrMargin = 12;
-    const qrCols = 8;
-    const qrRows = groups.length; // 6行（6个组）
     const rowGap = 8; // 行间裁剪间距
-    const totalRowGap = rowGap * (qrRows - 1);
-    const qrCellW = (qrPageSize[0] - qrMargin * 2) / qrCols;
-    const qrCellH = (qrPageSize[1] - qrMargin * 2 - totalRowGap) / qrRows;
     const qrLabelSize = 8;
-    const qrSize = Math.min(qrCellW - 6, qrCellH - 16);
 
     console.log('[PDF] Step 7: 生成二维码图片...');
     const qrImages = await Promise.all(
@@ -302,33 +293,55 @@ export async function buildPdf({
       })
     );
 
-    console.log('[PDF] Step 8: 绘制二维码到页面...');
-    groups.forEach((g, rowIdx) => {
-      const img = qrImages.find((i) => i.key === g.key)?.image;
-      const rowOffsetY = rowIdx * (qrCellH + rowGap);
+    // ========== 第三页：竖版二维码页（6列×8行，列对应组序） ==========
+    console.log('[PDF] Step 8: 添加竖版二维码页（竖向 6列×8行）...');
+    const qrPortraitPageSize: [number, number] = [595, 842]; // 竖版 A4
+    const qrPortraitMargin = qrMargin;
+    const qrPortraitCols = 6;
+    const qrPortraitRows = 8;
+    const qrPortraitRowGap = rowGap;
+    const totalPortraitRowGap = qrPortraitRowGap * (qrPortraitRows - 1);
+    const qrPortraitCellW = (qrPortraitPageSize[0] - qrPortraitMargin * 2) / qrPortraitCols;
+    const qrPortraitCellH = (qrPortraitPageSize[1] - qrPortraitMargin * 2 - totalPortraitRowGap) / qrPortraitRows;
+    const qrPortraitSize = Math.min(qrPortraitCellW - 6, qrPortraitCellH - 16);
+    const portraitPages = Math.max(1, Math.ceil(groups.length / qrPortraitCols));
 
-      for (let col = 0; col < qrCols; col++) {
-        const cellX = qrMargin + col * qrCellW;
-        const cellY = qrPageSize[1] - qrMargin - rowOffsetY - qrCellH;
+    for (let pageIdx = 0; pageIdx < portraitPages; pageIdx++) {
+      const portraitPage = pdfDoc.addPage(qrPortraitPageSize);
+      const colStartGroup = pageIdx * qrPortraitCols;
 
-        if (img) {
-          const imgX = cellX + (qrCellW - qrSize) / 2;
-          const imgY = cellY + (qrCellH - qrSize - 12) / 2 + 12;
-          qrPage.drawImage(img, { x: imgX, y: imgY, width: qrSize, height: qrSize });
+      for (let col = 0; col < qrPortraitCols; col++) {
+        const groupIdx = colStartGroup + col;
+        const g = groups[groupIdx];
+        if (!g) continue;
+
+        const img = qrImages.find((i) => i.key === g.key)?.image;
+        const cellXBase = qrPortraitMargin + col * qrPortraitCellW;
+
+        for (let row = 0; row < qrPortraitRows; row++) {
+          const rowOffsetY = row * (qrPortraitCellH + qrPortraitRowGap);
+          const cellX = cellXBase;
+          const cellY = qrPortraitPageSize[1] - qrPortraitMargin - rowOffsetY - qrPortraitCellH;
+
+          if (img) {
+            const imgX = cellX + (qrPortraitCellW - qrPortraitSize) / 2;
+            const imgY = cellY + (qrPortraitCellH - qrPortraitSize - 12) / 2 + 12;
+            portraitPage.drawImage(img, { x: imgX, y: imgY, width: qrPortraitSize, height: qrPortraitSize });
+          }
+
+          const label = g.key;
+          const labelWidth = font.widthOfTextAtSize(label, qrLabelSize);
+          const labelX = cellX + (qrPortraitCellW - labelWidth) / 2;
+          portraitPage.drawText(label, {
+            x: labelX,
+            y: cellY + 3,
+            size: qrLabelSize,
+            font,
+            color: rgb(0.35, 0.35, 0.35)
+          });
         }
-
-        const label = g.key;
-        const labelWidth = font.widthOfTextAtSize(label, qrLabelSize);
-        const labelX = cellX + (qrCellW - labelWidth) / 2;
-        qrPage.drawText(label, {
-          x: labelX,
-          y: cellY + 3,
-          size: qrLabelSize,
-          font,
-          color: rgb(0.35, 0.35, 0.35)
-        });
       }
-    });
+    }
 
     console.log('[PDF] Step 9: 保存 PDF 文档...');
     const pdfBytes = await pdfDoc.save();
