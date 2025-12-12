@@ -15,6 +15,7 @@ interface StatModeProps {
   testSampleTypeFieldId: string;
   reportTableId: string;
   reportFieldId: string;
+  reportConclusionFieldId: string;
   reportRecordIdDefault: string;
   pdfTableId: string;
   pdfViewId: string;

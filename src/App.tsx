@@ -22,6 +22,7 @@ const App: React.FC = () => {
     testSampleTypeFieldId: config.testSampleTypeFieldId,
     reportTableId: config.reportTableId,
     reportFieldId: config.reportFieldId,
+    reportConclusionFieldId: config.reportConclusionFieldId,
     reportRecordIdDefault: config.reportRecordIdDefault,
     pdfTableId: config.pdfTableId,
     pdfViewId: config.pdfViewId,

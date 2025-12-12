@@ -19,6 +19,7 @@ interface UseStatModeParams {
   testSampleTypeFieldId: string;
   reportTableId: string;
   reportFieldId: string;
+  reportConclusionFieldId: string;
   reportRecordIdDefault: string;
   pdfTableId: string;
   pdfViewId: string;
@@ -39,6 +40,7 @@ export function useStatMode({
   testSampleTypeFieldId,
   reportTableId,
   reportFieldId,
+  reportConclusionFieldId,
   reportRecordIdDefault,
   pdfTableId,
   pdfViewId,
@@ -391,6 +393,17 @@ export function useStatMode({
     }
     setStatStatus('正在查找对应记录...');
     try {
+      // 先获取测试结论（pass值）
+      const reportResult = buildStatReport({
+        selectedStatRecords,
+        statTestType,
+        statGroupSize,
+        statCountWarning,
+        selectedTestName,
+        statSampleName
+      });
+      const isPass = reportResult.pass ?? false;
+
       let targetRecordId: string | null = null;
       let matchedRecordId: string | null = null;
 
@@ -440,15 +453,29 @@ export function useStatMode({
       }
 
       const table = await bitable.base.getTableById(reportTableId);
-      const field = await table.getField(reportFieldId);
-      await field.setValue(targetRecordId, statReportMd);
+      const reportField = await table.getField(reportFieldId);
+      await reportField.setValue(targetRecordId, statReportMd);
+
+      // 写入测试结论字段
+      if (reportConclusionFieldId) {
+        try {
+          const conclusionField = await table.getField(reportConclusionFieldId);
+          // 根据pass值设置选项：测试通过 optEymPCVi，测试不通过 optrN5PWei
+          const optionId = isPass ? 'optEymPCVi' : 'optrN5PWei';
+          await conclusionField.setValue(targetRecordId, optionId);
+        } catch (conclusionErr) {
+          console.warn('[stat] 写入测试结论失败', conclusionErr);
+          // 不阻断主流程，只记录警告
+        }
+      }
+
       setStatStatus(`报告已成功写入到记录${targetRecordId === statWriteRecordId.trim() || targetRecordId === reportRecordIdDefault ? '' : `（${targetRecordId}）`}`);
     } catch (err) {
       console.error('[stat] 写入报告失败', err);
       setStatError('写入失败，请检查记录 ID/字段权限');
       setStatStatus('');
     }
-  }, [statReportMd, statWriteRecordId, reportRecordIdDefault, reportTableId, reportFieldId, selectedTestName, pdfTableId, pdfViewId, primaryFieldId]);
+  }, [statReportMd, statWriteRecordId, reportRecordIdDefault, reportTableId, reportFieldId, reportConclusionFieldId, selectedTestName, pdfTableId, pdfViewId, primaryFieldId, selectedStatRecords, statTestType, statGroupSize, statCountWarning, statSampleName]);
 
   return {
     statRecords,

@@ -72,7 +72,8 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
       // ===== 4. 报告写入 =====
       { key: 'REPORT_TABLE_ID', label: '报告表', category: '4. 报告写入', type: 'table', order: 200 },
       { key: 'REPORT_FIELD_ID', label: '报告字段', category: '4. 报告写入', type: 'field', tableKey: 'REPORT_TABLE_ID', order: 201 },
-      { key: 'REPORT_RECORD_ID_DEFAULT', label: '默认记录 ID', category: '4. 报告写入', type: 'text', order: 202 }
+      { key: 'REPORT_CONCLUSION_FIELD_ID', label: '测试结论字段', category: '4. 报告写入', type: 'field', tableKey: 'REPORT_TABLE_ID', fieldType: 3, order: 202 },
+      { key: 'REPORT_RECORD_ID_DEFAULT', label: '默认记录 ID', category: '4. 报告写入', type: 'text', order: 203 }
     ];
     // 六组字段（PDF表）
     DEFAULT_GROUPS.forEach((g, idx) => {
@@ -131,6 +132,7 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
 
   const reportTableId = getCfg('REPORT_TABLE_ID', DEFAULT_IDS.REPORT_TABLE_ID);
   const reportFieldId = getCfg('REPORT_FIELD_ID', DEFAULT_IDS.REPORT_FIELD_ID);
+  const reportConclusionFieldId = getCfg('REPORT_CONCLUSION_FIELD_ID', DEFAULT_IDS.REPORT_CONCLUSION_FIELD_ID);
   const reportRecordIdDefault = getCfg('REPORT_RECORD_ID_DEFAULT', DEFAULT_IDS.REPORT_RECORD_ID_DEFAULT);
 
   // 加载配置表（先用默认配置，异步加载配置表）
@@ -316,6 +318,7 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
     statCorrectFieldMap,
     reportTableId,
     reportFieldId,
+    reportConclusionFieldId,
     reportRecordIdDefault,
     setConfigStatus,
     setConfigError
