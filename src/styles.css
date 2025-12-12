@@ -316,7 +316,9 @@ body {
 }
 
 .button:hover:not(:disabled) {
-  background: #1a45c7;
+  background: #fff;
+  border-color: #2253e6;
+  color: #2253e6;
 }
 
 .button.secondary {
