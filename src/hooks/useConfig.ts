@@ -10,6 +10,12 @@ import {
   saveConfigToTable
 } from '../configEditor';
 import {
+  CONFIG_TABLE_DEFAULTS,
+  FIELD_NAME_MAPPING,
+  TABLE_NAME_MAPPING,
+  VIEW_NAME_MAPPING
+} from '../fieldNameMapping';
+import {
   PDF_TABLE_ID,
   PDF_VIEW_ID,
   TEST_SAMPLE_TYPE_FIELD_ID,
@@ -19,7 +25,9 @@ import {
 import { ConfigMetaItem, OptionMeta } from '../types';
 
 export function useConfig(mode: 'pdf' | 'stat' | 'config') {
-  const [groupConfigs, setGroupConfigs] = useState<GroupConfig[]>(DEFAULT_GROUPS);
+  const [groupConfigs, setGroupConfigs] = useState<GroupConfig[]>(() =>
+    mergeGroupConfigs(DEFAULT_GROUPS, CONFIG_TABLE_DEFAULTS)
+  );
   const [configStatus, setConfigStatus] = useState<string>('');
   const [configMap, setConfigMap] = useState<Record<string, string>>({});
   const [configTableId, setConfigTableId] = useState<string>('');
@@ -31,17 +39,45 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
   const [viewMap, setViewMap] = useState<Record<string, OptionMeta[]>>({});
   const [metaLoaded, setMetaLoaded] = useState(false);
 
-  const defaultConfigMap = useMemo(() => {
+  const defaultGroupValues = useMemo(() => mergeGroupConfigs(DEFAULT_GROUPS, CONFIG_TABLE_DEFAULTS), []);
+
+  const baseDefaultConfigMap = useMemo(() => {
     const map: Record<string, string> = {
-      ...DEFAULT_IDS
+      ...DEFAULT_IDS,
+      ...CONFIG_TABLE_DEFAULTS
     };
-    DEFAULT_GROUPS.forEach((g) => {
+    defaultGroupValues.forEach((g) => {
       map[`${g.key}_optionFieldId`] = g.optionFieldId;
       map[`${g.key}_correctFieldId`] = g.correctFieldId;
       map[`${g.key}_qrSourceFieldId`] = g.qrSourceFieldId;
     });
     return map;
-  }, []);
+  }, [defaultGroupValues]);
+
+  const normalize = (text: string) => text?.replace(/\s+/g, '').toLowerCase();
+
+  const findTableIdByName = (name?: string) => {
+    if (!name) return '';
+    const target = normalize(name);
+    const matched = tableList.find((t) => normalize(t.name) === target || normalize(t.name).includes(target));
+    return matched?.id || '';
+  };
+
+  const findViewIdByName = (tableId: string, viewName?: string) => {
+    if (!tableId || !viewName) return '';
+    const options = viewMap[tableId] || [];
+    const target = normalize(viewName);
+    const matched = options.find((v) => normalize(v.name) === target || normalize(v.name).includes(target));
+    return matched?.id || '';
+  };
+
+  const findFieldIdByName = (tableId: string, fieldName?: string) => {
+    if (!tableId || !fieldName) return '';
+    const options = fieldMap[tableId] || [];
+    const target = normalize(fieldName);
+    const matched = options.find((f) => normalize(f.name) === target || normalize(f.name).includes(target));
+    return matched?.id || '';
+  };
 
   const configMeta = useMemo<ConfigMetaItem[]>(() => {
     const items: ConfigMetaItem[] = [
@@ -85,7 +121,69 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
     });
     items.sort((a, b) => (a.order || 0) - (b.order || 0));
     return items;
-  }, []);
+  }, [defaultGroupValues]);
+
+  const defaultConfigMap = useMemo(() => {
+    if (!metaLoaded) return baseDefaultConfigMap;
+    const map = { ...baseDefaultConfigMap };
+    const tableCache: Record<string, string> = {};
+
+    const resolveTableId = (tableKey: string | undefined) => {
+      if (!tableKey) return '';
+      if (tableCache[tableKey]) return tableCache[tableKey];
+      const existing = map[tableKey];
+      if (existing) {
+        tableCache[tableKey] = existing;
+        return existing;
+      }
+      const name = TABLE_NAME_MAPPING[tableKey];
+      const found = findTableIdByName(name);
+      if (found) {
+        tableCache[tableKey] = found;
+        map[tableKey] = found;
+      }
+      return tableCache[tableKey] || '';
+    };
+
+    const tryResolveView = (itemKey: string, tableKey?: string) => {
+      if (map[itemKey]) return;
+      const tableId = resolveTableId(tableKey);
+      if (!tableId) return;
+      const viewName = VIEW_NAME_MAPPING[itemKey];
+      const viewId = findViewIdByName(tableId, viewName);
+      if (viewId) {
+        map[itemKey] = viewId;
+      }
+    };
+
+    const tryResolveField = (itemKey: string, tableKey?: string) => {
+      if (map[itemKey]) return;
+      const tableId = resolveTableId(tableKey);
+      if (!tableId) return;
+      const fieldName = FIELD_NAME_MAPPING[itemKey];
+      const fieldId = findFieldIdByName(tableId, fieldName);
+      if (fieldId) {
+        map[itemKey] = fieldId;
+      }
+    };
+
+    configMeta.forEach((item) => {
+      if (item.type === 'table') {
+        resolveTableId(item.key);
+      } else if (item.type === 'view') {
+        tryResolveView(item.key, item.tableKey);
+      } else if (item.type === 'field') {
+        tryResolveField(item.key, item.tableKey);
+      }
+    });
+
+    return map;
+  }, [baseDefaultConfigMap, configMeta, fieldMap, metaLoaded, tableList, viewMap]);
+
+  const getBaseDefault = useCallback(
+    (key: string, fallback: string) => baseDefaultConfigMap[key] || fallback,
+    [baseDefaultConfigMap]
+  );
 
   const getCfg = useCallback(
     (key: string, fallback: string) => {
@@ -102,42 +200,42 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
   );
 
   // 预计算配置值
-  const pdfTableId = getCfg('PDF_TABLE_ID', DEFAULT_IDS.PDF_TABLE_ID);
-  const pdfViewId = getCfg('PDF_VIEW_ID', DEFAULT_IDS.PDF_VIEW_ID);
-  const testSampleTypeFieldId = getCfg('TEST_SAMPLE_TYPE_FIELD_ID', DEFAULT_IDS.TEST_SAMPLE_TYPE_FIELD_ID);
-  const testSampleNameFieldId = getCfg('TEST_SAMPLE_NAME_FIELD_ID', DEFAULT_IDS.TEST_SAMPLE_NAME_FIELD_ID);
-  const pdfAttachmentFieldId = getCfg('PDF_ATTACHMENT_FIELD_ID', DEFAULT_IDS.PDF_ATTACHMENT_FIELD_ID);
+  const pdfTableId = getCfg('PDF_TABLE_ID', getBaseDefault('PDF_TABLE_ID', DEFAULT_IDS.PDF_TABLE_ID));
+  const pdfViewId = getCfg('PDF_VIEW_ID', getBaseDefault('PDF_VIEW_ID', DEFAULT_IDS.PDF_VIEW_ID));
+  const testSampleTypeFieldId = getCfg('TEST_SAMPLE_TYPE_FIELD_ID', getBaseDefault('TEST_SAMPLE_TYPE_FIELD_ID', DEFAULT_IDS.TEST_SAMPLE_TYPE_FIELD_ID));
+  const testSampleNameFieldId = getCfg('TEST_SAMPLE_NAME_FIELD_ID', getBaseDefault('TEST_SAMPLE_NAME_FIELD_ID', DEFAULT_IDS.TEST_SAMPLE_NAME_FIELD_ID));
+  const pdfAttachmentFieldId = getCfg('PDF_ATTACHMENT_FIELD_ID', getBaseDefault('PDF_ATTACHMENT_FIELD_ID', DEFAULT_IDS.PDF_ATTACHMENT_FIELD_ID));
 
-  const statTableId = getCfg('STAT_TABLE_ID', DEFAULT_IDS.STAT_TABLE_ID);
-  const statViewId = getCfg('STAT_VIEW_ID', DEFAULT_IDS.STAT_VIEW_ID);
-  const statLinkFieldId = getCfg('STAT_LINK_FIELD_ID', DEFAULT_IDS.STAT_LINK_FIELD_ID);
-  const statGroupFieldId = getCfg('STAT_GROUP_FIELD_ID', DEFAULT_IDS.STAT_GROUP_FIELD_ID);
-  const statAnswerFieldId = getCfg('STAT_ANSWER_FIELD_ID', DEFAULT_IDS.STAT_ANSWER_FIELD_ID);
-  const statFeedbackFieldId = getCfg('STAT_FEEDBACK_FIELD_ID', DEFAULT_IDS.STAT_FEEDBACK_FIELD_ID);
-  const statModifierFieldId = getCfg('STAT_MODIFIER_FIELD_ID', DEFAULT_IDS.STAT_MODIFIER_FIELD_ID);
-  const statCreatedAtFieldId = getCfg('STAT_CREATED_AT_FIELD_ID', DEFAULT_IDS.STAT_CREATED_AT_FIELD_ID);
+  const statTableId = getCfg('STAT_TABLE_ID', getBaseDefault('STAT_TABLE_ID', DEFAULT_IDS.STAT_TABLE_ID));
+  const statViewId = getCfg('STAT_VIEW_ID', getBaseDefault('STAT_VIEW_ID', DEFAULT_IDS.STAT_VIEW_ID));
+  const statLinkFieldId = getCfg('STAT_LINK_FIELD_ID', getBaseDefault('STAT_LINK_FIELD_ID', DEFAULT_IDS.STAT_LINK_FIELD_ID));
+  const statGroupFieldId = getCfg('STAT_GROUP_FIELD_ID', getBaseDefault('STAT_GROUP_FIELD_ID', DEFAULT_IDS.STAT_GROUP_FIELD_ID));
+  const statAnswerFieldId = getCfg('STAT_ANSWER_FIELD_ID', getBaseDefault('STAT_ANSWER_FIELD_ID', DEFAULT_IDS.STAT_ANSWER_FIELD_ID));
+  const statFeedbackFieldId = getCfg('STAT_FEEDBACK_FIELD_ID', getBaseDefault('STAT_FEEDBACK_FIELD_ID', DEFAULT_IDS.STAT_FEEDBACK_FIELD_ID));
+  const statModifierFieldId = getCfg('STAT_MODIFIER_FIELD_ID', getBaseDefault('STAT_MODIFIER_FIELD_ID', DEFAULT_IDS.STAT_MODIFIER_FIELD_ID));
+  const statCreatedAtFieldId = getCfg('STAT_CREATED_AT_FIELD_ID', getBaseDefault('STAT_CREATED_AT_FIELD_ID', DEFAULT_IDS.STAT_CREATED_AT_FIELD_ID));
 
   const statCorrectFieldMap = useMemo(() => {
     const map: Record<GroupKey, string> = {
-      A1: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.A1, DEFAULT_GROUPS[0].correctFieldId),
-      A2: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.A2, DEFAULT_GROUPS[1].correctFieldId),
-      A3: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.A3, DEFAULT_GROUPS[2].correctFieldId),
-      B1: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.B1, DEFAULT_GROUPS[3].correctFieldId),
-      B2: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.B2, DEFAULT_GROUPS[4].correctFieldId),
-      B3: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.B3, DEFAULT_GROUPS[5].correctFieldId)
+      A1: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.A1, defaultGroupValues[0].correctFieldId),
+      A2: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.A2, defaultGroupValues[1].correctFieldId),
+      A3: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.A3, defaultGroupValues[2].correctFieldId),
+      B1: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.B1, defaultGroupValues[3].correctFieldId),
+      B2: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.B2, defaultGroupValues[4].correctFieldId),
+      B3: getCfg(STAT_CORRECT_FIELD_MAP_KEYS.B3, defaultGroupValues[5].correctFieldId)
     };
     return map;
-  }, [getCfg]);
+  }, [defaultGroupValues, getCfg]);
 
-  const reportTableId = getCfg('REPORT_TABLE_ID', DEFAULT_IDS.REPORT_TABLE_ID);
-  const reportFieldId = getCfg('REPORT_FIELD_ID', DEFAULT_IDS.REPORT_FIELD_ID);
-  const reportConclusionFieldId = getCfg('REPORT_CONCLUSION_FIELD_ID', DEFAULT_IDS.REPORT_CONCLUSION_FIELD_ID);
+  const reportTableId = getCfg('REPORT_TABLE_ID', getBaseDefault('REPORT_TABLE_ID', DEFAULT_IDS.REPORT_TABLE_ID));
+  const reportFieldId = getCfg('REPORT_FIELD_ID', getBaseDefault('REPORT_FIELD_ID', DEFAULT_IDS.REPORT_FIELD_ID));
+  const reportConclusionFieldId = getCfg('REPORT_CONCLUSION_FIELD_ID', getBaseDefault('REPORT_CONCLUSION_FIELD_ID', DEFAULT_IDS.REPORT_CONCLUSION_FIELD_ID));
 
   // 加载配置表（先用默认配置，异步加载配置表）
   useEffect(() => {
     // 立即使用默认配置，不阻塞渲染
     setConfigLoading(false);
-    setGroupConfigs(DEFAULT_GROUPS);
+    setGroupConfigs(defaultGroupValues);
     setConfigStatus('使用默认配置');
 
     const loadConfig = async () => {
@@ -147,7 +245,7 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
           setConfigTableId(tableId);
           setConfigMap(config);
           setConfigDraft(config);
-          setGroupConfigs(mergeGroupConfigs(DEFAULT_GROUPS, config));
+          setGroupConfigs(mergeGroupConfigs(defaultGroupValues, config));
           setConfigStatus(`配置表已加载 (ID: ${tableId})`);
         }
       } catch (err) {
@@ -156,11 +254,11 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
       }
     };
     loadConfig();
-  }, []);
+  }, [defaultGroupValues]);
 
   useEffect(() => {
-    setGroupConfigs(mergeGroupConfigs(DEFAULT_GROUPS, configMap));
-  }, [configMap]);
+    setGroupConfigs(mergeGroupConfigs(defaultGroupValues, configMap));
+  }, [configMap, defaultGroupValues]);
 
   // 辅助函数：获取表名
   const getTableName = async (table: any): Promise<string> => {
@@ -265,14 +363,14 @@ export function useConfig(mode: 'pdf' | 'stat' | 'config') {
     try {
       await saveConfigToTable(configDraft);
       setConfigMap(configDraft);
-      setGroupConfigs(mergeGroupConfigs(DEFAULT_GROUPS, configDraft));
+      setGroupConfigs(mergeGroupConfigs(defaultGroupValues, configDraft));
       setConfigStatus('配置已保存到配置表');
     } catch (e) {
       console.error('[config] save failed', e);
       setConfigError('保存失败，请重试');
       setConfigStatus('');
     }
-  }, [configDraft]);
+  }, [configDraft, defaultGroupValues]);
 
   const restoreDefaultDraft = useCallback(() => {
     setConfigDraft(defaultConfigMap);
