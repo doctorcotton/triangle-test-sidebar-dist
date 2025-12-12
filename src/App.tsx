@@ -62,6 +62,59 @@ const BASE_GROUPS: GroupConfig[] = DEFAULT_GROUPS;
 
 const PAGE_SIZE = 10;
 
+const TEST_TYPE_RULES: Record<string, { groupSize: number; alpha: number; name: string; p: number }> = {
+  // 备选测试按表 A.2（Pd=30%）取相似判定值，这里给定 p=0.2 近似，关键阈值使用表值覆盖
+  备选测试: { groupSize: 7, alpha: 0.05, name: '备选测试 (α=0.05)', p: 0.2 },
+  // 工厂样品按差异检出（p≈1/3）
+  工厂样品: { groupSize: 6, alpha: 0.1, name: '工厂样品 (α=0.10)', p: 1 / 3 }
+};
+
+// 工厂样品（差异检验）阈值：≤36 固定 18；37~54 按表 1 的 x_min
+const FACTORY_MIN_N = 36;
+const FACTORY_MAX_N = 54;
+const FACTORY_BASE_THRESHOLD = 18;
+const FACTORY_DIFF_THRESHOLD_TABLE: Record<number, number> = {
+  37: 18,
+  38: 18,
+  39: 18,
+  40: 19,
+  41: 19,
+  42: 20,
+  43: 20,
+  44: 20,
+  45: 21,
+  46: 21,
+  47: 21,
+  48: 22,
+  49: 22,
+  50: 23,
+  51: 23,
+  52: 23,
+  53: 24,
+  54: 24
+};
+
+// 备选测试（相似检验）阈值：≤42 最大允许正确数 16（显著阈值 17）；43~54 按表 2 的 x_max
+const ALT_MIN_N = 42;
+const ALT_MAX_N = 54;
+const ALT_BASE_MAX_ALLOWED = 16; // 显著阈值 = 17
+const ALT_SIMILARITY_MAX_TABLE: Record<number, number> = {
+  43: 17,
+  44: 18,
+  45: 18,
+  46: 19,
+  47: 19,
+  48: 20,
+  49: 20,
+  50: 20,
+  51: 21,
+  52: 21,
+  53: 22,
+  54: 22
+};
+
+const DEFAULT_STAT_TEST_TYPE = '备选测试';
+
 function toText(val: unknown): string {
   if (val == null) return '';
   if (typeof val === 'object' && val !== null) {
@@ -128,7 +181,7 @@ function toTimestamp(val: unknown): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-// 计算二项分布尾概率，求显著性阈值（α=0.05, p=1/3）
+// 计算二项分布尾概率，求显著性阈值（α=0.05, p=0.3 对应 Pd=30%）
 function binomProb(n: number, k: number, p: number): number {
   if (k < 0 || k > n) return 0;
   if (p <= 0 || p >= 1) return k === (p >= 1 ? n : 0) ? 1 : 0;
@@ -150,13 +203,35 @@ function binomTail(n: number, k: number, p: number): number {
   return sum;
 }
 
-function getSignificanceThreshold(n: number, alpha = 0.05, p = 1 / 3): number {
+function getSignificanceThreshold(n: number, alpha = 0.05, p = 0.3): number {
   if (n <= 0) return 0;
   for (let k = 0; k <= n; k++) {
     const tail = binomTail(n, k, p);
     if (tail <= alpha) return k;
   }
   return n + 1; // 理论上不应该到达这里
+}
+
+function clampSampleSize(n: number, minN: number, maxN: number): number {
+  if (n <= minN) return minN;
+  if (n >= maxN) return maxN;
+  return n;
+}
+
+// 按测试类型获取显著性阈值（正确数达到该值即判定存在显著差异）
+function getThresholdByType(statTestType: string, sampleSize: number): number {
+  if (statTestType === '工厂样品') {
+    const n = clampSampleSize(sampleSize, FACTORY_MIN_N, FACTORY_MAX_N);
+    if (n <= FACTORY_MIN_N) return FACTORY_BASE_THRESHOLD;
+    const tableVal = FACTORY_DIFF_THRESHOLD_TABLE[n];
+    return tableVal ?? FACTORY_DIFF_THRESHOLD_TABLE[FACTORY_MAX_N] ?? FACTORY_BASE_THRESHOLD;
+  }
+
+  // 默认按备选测试相似判定
+  const n = clampSampleSize(sampleSize, ALT_MIN_N, ALT_MAX_N);
+  if (n <= ALT_MIN_N) return ALT_BASE_MAX_ALLOWED + 1; // 17
+  const xMax = ALT_SIMILARITY_MAX_TABLE[n];
+  return (xMax ?? ALT_SIMILARITY_MAX_TABLE[ALT_MAX_N] ?? ALT_BASE_MAX_ALLOWED) + 1;
 }
 
 // 字体加载：优先使用打包的本地字体，确保离线可用
@@ -281,6 +356,7 @@ const App: React.FC = () => {
       { key: 'STAT_ANSWER_FIELD_ID', label: '问卷结果', category: '3. 统计模式 - 基础字段', type: 'field', tableKey: 'STAT_TABLE_ID', order: 104 },
       { key: 'STAT_FEEDBACK_FIELD_ID', label: '评价', category: '3. 统计模式 - 基础字段', type: 'field', tableKey: 'STAT_TABLE_ID', order: 105 },
       { key: 'STAT_CREATED_AT_FIELD_ID', label: '创建日期', category: '3. 统计模式 - 基础字段', type: 'field', tableKey: 'STAT_TABLE_ID', order: 106 },
+      { key: 'STAT_MODIFIER_FIELD_ID', label: '修改人', category: '3. 统计模式 - 基础字段', type: 'field', tableKey: 'STAT_TABLE_ID', order: 107 },
       // 统计表中的正确答案引用字段
       { key: 'STAT_CORRECT_A1', label: 'A1 正确答案', category: '3. 统计模式 - 正确答案字段', type: 'field', tableKey: 'STAT_TABLE_ID', order: 110 },
       { key: 'STAT_CORRECT_A2', label: 'A2 正确答案', category: '3. 统计模式 - 正确答案字段', type: 'field', tableKey: 'STAT_TABLE_ID', order: 111 },
@@ -508,6 +584,8 @@ const App: React.FC = () => {
   // 统计模式状态
   const [statRecords, setStatRecords] = useState<StatRecord[]>([]);
   const [selectedTestName, setSelectedTestName] = useState<string>('');
+  const [statTestType, setStatTestType] = useState<string>(DEFAULT_STAT_TEST_TYPE);
+  const [statSampleName, setStatSampleName] = useState<string>('');
   const [statGroupSize, setStatGroupSize] = useState<number>(6);
   const [statReportMd, setStatReportMd] = useState<string>('');
   const [statLoading, setStatLoading] = useState<boolean>(false);
@@ -550,6 +628,45 @@ const App: React.FC = () => {
     return statRecords.filter((r) => r.testName === selectedTestName);
   }, [statRecords, selectedTestName]);
 
+  const fetchSampleNameByTest = useCallback(
+    async (testName: string) => {
+      if (!testName) return;
+      const tableId = pdfTableId;
+      const viewId = pdfViewId;
+      const primaryFieldIdVal = primaryFieldId;
+      const sampleFieldIdVal = testSampleNameFieldId;
+      if (!tableId || !viewId || !primaryFieldIdVal || !sampleFieldIdVal) return;
+      const tableIdSafe = tableId as string;
+      const viewIdSafe = viewId as string;
+      const primaryFieldIdSafe = primaryFieldIdVal!;
+      const sampleFieldIdSafe = sampleFieldIdVal!;
+      try {
+        const table = await bitable.base.getTableById(tableIdSafe);
+        const view = await table.getViewById(viewIdSafe);
+        const recordIds = await view.getVisibleRecordIdList();
+        const primaryField = await table.getField(primaryFieldIdSafe);
+        const sampleField = await table.getField(sampleFieldIdSafe);
+        for (const rid of recordIds) {
+          if (!rid) continue;
+          try {
+            const nameRaw = await primaryField.getValue(rid);
+            const nameText = toText(nameRaw);
+            if (nameText === testName) {
+              const sampleRaw = await sampleField.getValue(rid);
+              setStatSampleName(toText(sampleRaw));
+              return;
+            }
+          } catch {
+            // ignore single record error
+          }
+        }
+      } catch {
+        // ignore load error
+      }
+    },
+    [bitable, pdfTableId, pdfViewId, primaryFieldId, testSampleNameFieldId]
+  );
+
   // 当可选测试名称列表变化时，确保选中项有效
   useEffect(() => {
     if (availableTestNames.length === 0) return;
@@ -557,6 +674,33 @@ const App: React.FC = () => {
       setSelectedTestName(availableTestNames[0]);
     }
   }, [availableTestNames, selectedTestName]);
+
+  useEffect(() => {
+    if (selectedTestName) {
+      fetchSampleNameByTest(selectedTestName);
+    } else {
+      setStatSampleName('');
+    }
+  }, [selectedTestName, fetchSampleNameByTest]);
+
+  // 根据测试类型自动设定每组人数
+  useEffect(() => {
+    const rule = TEST_TYPE_RULES[statTestType];
+    if (rule) {
+      setStatGroupSize((prev) => Math.max(prev, rule.groupSize));
+    }
+  }, [statTestType, statGroupSize]);
+
+  const effectiveStatGroupSize = useMemo(() => {
+    const rule = TEST_TYPE_RULES[statTestType];
+    const minSize = rule?.groupSize ?? 0;
+    return Math.max(statGroupSize, minSize);
+  }, [statGroupSize, statTestType]);
+
+  const currentAlpha = useMemo(() => {
+    const rule = TEST_TYPE_RULES[statTestType];
+    return rule?.alpha ?? 0.05;
+  }, [statTestType]);
 
   const statSummary = useMemo(() => {
     const perGroup: Record<GroupKey, { total: number; correct: number }> = {
@@ -578,18 +722,21 @@ const App: React.FC = () => {
   }, [selectedStatRecords]);
 
   // 统计模式：样本量校验（期望每组人数 * 6 组）
-  const statExpectedTotal = useMemo(() => Math.max(0, statGroupSize) * 6, [statGroupSize]);
+  const statExpectedTotal = useMemo(
+    () => Math.max(0, effectiveStatGroupSize) * 6,
+    [effectiveStatGroupSize]
+  );
   const statCountWarning = useMemo(() => {
     if (statExpectedTotal <= 0) return '';
     if (statSummary.total !== statExpectedTotal) {
       const shortage = statSummary.total < statExpectedTotal;
-      const base = `问卷数量 ${statSummary.total} 与模板预期样本量（每组 ${statGroupSize} 人 × 6 组 = ${statExpectedTotal} 份）不一致`;
+      const base = `问卷数量 ${statSummary.total} 与模板预期样本量（每组 ${effectiveStatGroupSize} 人 × 6 组 = ${statExpectedTotal} 份）不一致`;
       return shortage
-        ? `${base}，数量不足将无法通过，请补足问卷或下调「每组人数」后再生成。`
+        ? `${base}，数量不足将无法通过，请补足问卷。`
         : `${base}，如已调整抽样计划，请同步更新「每组人数」，避免人数校验不通过。`;
     }
     return '';
-  }, [statSummary.total, statExpectedTotal, statGroupSize]);
+  }, [statSummary.total, statExpectedTotal, effectiveStatGroupSize]);
 
   useEffect(() => {
     if (!statWriteRecordId) {
@@ -762,6 +909,13 @@ const App: React.FC = () => {
       const modifierField = await table.getField(statModifierFieldId);
       const createdField = await table.getField(statCreatedAtFieldId);
       const correctFieldCache: Partial<Record<GroupKey, any>> = {};
+      let sampleTypeField: any = null;
+      try {
+        sampleTypeField = await table.getField(testSampleTypeFieldId);
+      } catch {
+        sampleTypeField = null;
+      }
+      let detectedSampleType = '';
 
       const temp: StatRecord[] = [];
       for (const rid of recordIds) {
@@ -815,6 +969,18 @@ const App: React.FC = () => {
             modifier = '';
           }
 
+          if (!detectedSampleType && sampleTypeField) {
+            try {
+              const sampleTypeRaw = await sampleTypeField.getValue(rid);
+              const sampleTypeText = toText(sampleTypeRaw);
+              if (sampleTypeText) {
+                detectedSampleType = sampleTypeText;
+              }
+            } catch {
+              // ignore
+            }
+          }
+
           temp.push({
             recordId: rid,
             testName,
@@ -832,6 +998,13 @@ const App: React.FC = () => {
       }
 
       setStatRecords(temp);
+      const normalizedSampleType = (() => {
+        const t = (detectedSampleType || '').trim();
+        if (!t) return DEFAULT_STAT_TEST_TYPE;
+        if (t.includes('厂')) return '工厂样品';
+        return '备选测试';
+      })();
+      setStatTestType(normalizedSampleType);
       const sortedNames = (() => {
         const map: Record<string, number> = {};
         temp.forEach((r) => {
@@ -875,17 +1048,37 @@ const App: React.FC = () => {
 
     const records = selectedStatRecords;
     const totalPeople = records.length;
-    const countMismatch = statExpectedTotal > 0 && totalPeople !== statExpectedTotal;
-    const countShortage = statExpectedTotal > 0 && totalPeople < statExpectedTotal;
+    const typeRule = TEST_TYPE_RULES[statTestType];
+    const expectedPerGroup = Math.max(statGroupSize, typeRule?.groupSize ?? 0);
+    const expectedTotalByRule = Math.max(0, expectedPerGroup) * 6;
+    const countMismatch = expectedTotalByRule > 0 && totalPeople !== expectedTotalByRule;
+    const countShortage = expectedTotalByRule > 0 && totalPeople < expectedTotalByRule;
     const correctCount = records.filter((r) => r.answer === r.correct).length;
-    const threshold = getSignificanceThreshold(totalPeople);
-    const insufficient = totalPeople < threshold; // 样本数小于显著性判定所需最少正确数 -> 无法判定
+    const alpha = typeRule?.alpha ?? 0.05;
+    const minSampleLimit = statTestType === '工厂样品' ? FACTORY_MIN_N : ALT_MIN_N;
+    const maxSampleLimit = statTestType === '工厂样品' ? FACTORY_MAX_N : ALT_MAX_N;
+    const baseBeforeClamp = expectedTotalByRule > 0 ? Math.max(expectedTotalByRule, totalPeople) : totalPeople;
+    const thresholdBase = clampSampleSize(baseBeforeClamp, minSampleLimit, maxSampleLimit);
+    const threshold = getThresholdByType(statTestType, thresholdBase);
+    const insufficient = totalPeople < threshold; // 样本数小于显著性判定所需最少正确数 -> 无法判定（仅兜底）
     const significant = !insufficient && correctCount >= threshold;
-    const conclusion = insufficient
-      ? '样本量不足，无法按 GB/T 12311 判定显著性'
-      : significant
-        ? '存在显著性差别（拒绝“无差别”假设）'
-        : '无显著性差别，接受“无差别”假设';
+    const passByRule = !significant;
+    const pass = !countShortage && passByRule;
+    const rangeDesc = statTestType === '工厂样品'
+      ? `样本量下限 ${FACTORY_MIN_N}，上限 ${FACTORY_MAX_N}（≤${FACTORY_MIN_N} 固定阈值 ${FACTORY_BASE_THRESHOLD}；${FACTORY_MIN_N + 1}~${FACTORY_MAX_N} 按表值）`
+      : `样本量下限 ${ALT_MIN_N}，上限 ${ALT_MAX_N}（≤${ALT_MIN_N} 固定阈值 ${ALT_BASE_MAX_ALLOWED + 1}；${ALT_MIN_N + 1}~${ALT_MAX_N} 按表值）`;
+    const passRuleDesc = expectedTotalByRule > 0
+      ? `每组 ${expectedPerGroup} 人 × 6 组（阈值按样本量 ${thresholdBase} 份计算，${rangeDesc}），α=${alpha}，正确数 < ${threshold} 视为无显著差异（通过）；≥${threshold} 判定存在显著差异`
+      : `阈值按样本量 ${thresholdBase} 份计算，${rangeDesc}，α=${alpha}：正确数 < ${threshold} 视为无显著差异（通过）；≥${threshold} 判定存在显著差异`;
+    const passRuleDescWithType = typeRule ? `${typeRule.name}：${passRuleDesc}` : passRuleDesc;
+    const resultDesc = countShortage
+      ? `本次共有 ${totalPeople} 份有效记录，低于预期样本量 ${expectedTotalByRule} 份，样本不足，无法按规则判定，请补足样本。`
+      : `本次共有 ${totalPeople} 份有效记录${countMismatch ? `（与预期 ${expectedTotalByRule} 份不一致，请核查抽样）` : ''}，正确 ${correctCount} 份。判定规则：${passRuleDescWithType}。结论：${pass ? '符合通过标准' : '未满足通过标准'}。`;
+    const conclusion = countShortage
+      ? `${selectedTestName || '该样品'} 样本量不足，无法按规则判定，请补足样本后再次生成报告。`
+      : pass
+        ? `${selectedTestName || '该样品'} 满足判定规则（${passRuleDescWithType}），测试通过。`
+        : `${selectedTestName || '该样品'} 未满足判定规则（${passRuleDescWithType}），请关注差异来源。`;
 
     const correctRecords = records.filter((r) => r.answer === r.correct);
 
@@ -931,38 +1124,28 @@ const App: React.FC = () => {
     const title = `${selectedTestName || '三点测试'} 三点检验报告`;
     const warningLines = statCountWarning ? [`> 样本量提示：${statCountWarning}`, ''] : [];
     const expectedDesc =
-      statExpectedTotal > 0
-        ? `模板预期样本量：每组 ${statGroupSize} 人 × 6 组 = ${statExpectedTotal} 份；实际问卷 ${totalPeople} 份。`
+      expectedTotalByRule > 0
+        ? `模板预期样本量：每组 ${expectedPerGroup} 人 × 6 组 = ${expectedTotalByRule} 份；实际问卷 ${totalPeople} 份。`
         : '每组预期人数未设置，实际以记录为准。';
 
     const md = [
       `# ${title}`,
       '',
       '一、测试批次',
-      selectedTestName || '（未获取到测试批次名称）',
+      `${selectedTestName || '未获取到测试批次名称'} 测试样品：${statSampleName || '未获取'}`,
       '',
       '二、测试方法',
       '参照国家标准 GB/T 12311-2012《感官分析方法 三点检验》进行三点品评。',
       '',
       '三、测试原理',
-      `设定显著性水平 α=0.05，敏感性按表 A.1 查表。总人数 ${totalPeople} 人，对应最少正确数 ${threshold} 才视为差异显著。${expectedDesc}`,
+      `当前测试类型：${statTestType}（α=${alpha}），判定规则：${passRuleDescWithType}。${expectedDesc}`,
       '',
       '四、测试结果',
       ...warningLines,
-      countShortage
-        ? `本次共有 ${totalPeople} 份有效记录，低于预期样本量 ${statExpectedTotal} 份，样本不足，当前结果仅供参考，请补足样本后再判定显著性。`
-        : insufficient
-          ? `本次共有 ${totalPeople} 份有效记录，少于显著性判定所需的最小样本量（需至少达到阈值 ${threshold} 才能判定）。当前样本不足，无法按 GB/T 12311 进行显著性判定。`
-          : `本次共有 ${totalPeople} 份有效记录，正确 ${correctCount} 份。与阈值 ${threshold} 比较，结论：${significant ? '存在显著性差别' : '无显著性差别'}。`,
+      resultDesc,
       '',
       '五、测试结论',
-      countShortage
-        ? `${selectedTestName || '该样品'} 样本量不足（低于预期 ${statExpectedTotal}），当前结果不能视为通过，请补足样本后再测。`
-        : insufficient
-          ? `${selectedTestName || '该样品'} 样本量不足，无法判定显著性，请补足样本后再测。`
-          : significant
-            ? `${selectedTestName || '该样品'} 与对比样存在显著性差别，请关注差异来源。`
-            : `${selectedTestName || '该样品'} 与对比样无显著性差别，口味测试通过。`,
+      conclusion,
       '',
       '表1：各组三联样检验结果',
       '| 组别 | 人数 | 正确 | 正确率 | 选项分布 |',
@@ -974,7 +1157,7 @@ const App: React.FC = () => {
       '| ---- | ---- | ---- |',
       correctRows,
       '',
-      '> 说明：选项分布按问卷选择计数；显著性判定按 GB/T 12311 表 A.1（p=1/3，α=0.05）自动计算。'
+      '> 说明：选项分布按问卷选择计数；显著性判定按 GB/T 12311 表 A.1（p=0.30，α=0.05）自动计算。'
     ].join('\n');
 
     setStatReportMd(md);
@@ -1751,7 +1934,12 @@ const App: React.FC = () => {
                   type="number"
                   min={1}
                   value={statGroupSize}
-                  onChange={(e) => setStatGroupSize(Number(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const rule = TEST_TYPE_RULES[statTestType];
+                    const minSize = rule?.groupSize ?? 1;
+                    const val = Number(e.target.value) || 0;
+                    setStatGroupSize(Math.max(val, minSize));
+                  }}
                   style={{ width: 100 }}
                 />
               </div>
@@ -1813,7 +2001,7 @@ const App: React.FC = () => {
                   </span>
                   <span className="meta-item">
                     <span className="meta-label">每组人数（期望）</span>
-                    <span className="meta-value">{statGroupSize}</span>
+                    <span className="meta-value">{effectiveStatGroupSize}</span>
                   </span>
                 </div>
                 {statCountWarning && (
