@@ -51,6 +51,7 @@ export function useStatMode({
   const [statSampleName, setStatSampleName] = useState<string>('');
   const [statGroupSize, setStatGroupSize] = useState<number>(6);
   const [statReportMd, setStatReportMd] = useState<string>('');
+  const [statReportForTestName, setStatReportForTestName] = useState<string>(''); // 记录当前报告对应的任务名称
   const [statLoading, setStatLoading] = useState<boolean>(false);
   const [statError, setStatError] = useState<string>('');
   const [statStatus, setStatStatus] = useState<string>('');
@@ -134,7 +135,12 @@ export function useStatMode({
     } else {
       setStatSampleName('');
     }
-  }, [selectedTestName, fetchSampleNameByTest]);
+    // 切换任务时，如果报告不是当前任务的，清除旧报告
+    if (statReportForTestName && statReportForTestName !== selectedTestName) {
+      setStatReportMd('');
+      setStatReportForTestName('');
+    }
+  }, [selectedTestName, fetchSampleNameByTest, statReportForTestName]);
 
   useEffect(() => {
     const rule = TEST_TYPE_RULES[statTestType];
@@ -359,7 +365,10 @@ export function useStatMode({
       setStatError(result.error);
       return;
     }
-    if (result.md) setStatReportMd(result.md);
+    if (result.md) {
+      setStatReportMd(result.md);
+      setStatReportForTestName(selectedTestName); // 记录报告对应的任务名称
+    }
     setStatStatus(result.status || '');
   }, [selectedStatRecords, statTestType, statGroupSize, statCountWarning, selectedTestName, statSampleName]);
 
@@ -375,17 +384,42 @@ export function useStatMode({
 
   const writeStatReportToField = useCallback(async () => {
     setStatError('');
-    if (!statReportMd) {
-      setStatError('请先生成 MD 报告');
-      return;
-    }
     if (!selectedTestName) {
       setStatError('请先选择测试名称');
       return;
     }
+    
+    // 如果没有报告，或者报告不是当前任务的，自动生成报告
+    let currentReportMd = statReportMd;
+    if (!statReportMd || statReportForTestName !== selectedTestName) {
+      setStatStatus('正在自动生成当前任务的报告...');
+      const reportResult = buildStatReport({
+        selectedStatRecords,
+        statTestType,
+        statGroupSize,
+        statCountWarning,
+        selectedTestName,
+        statSampleName
+      });
+      if (reportResult.error) {
+        setStatError(reportResult.error);
+        setStatStatus('');
+        return;
+      }
+      if (reportResult.md) {
+        currentReportMd = reportResult.md;
+        setStatReportMd(reportResult.md);
+        setStatReportForTestName(selectedTestName);
+      } else {
+        setStatError('生成报告失败，请检查数据');
+        setStatStatus('');
+        return;
+      }
+    }
+    
     setStatStatus('正在查找对应记录...');
     try {
-      // 先获取测试结论（pass值）
+      // 获取测试结论（pass值）
       const reportResult = buildStatReport({
         selectedStatRecords,
         statTestType,
@@ -446,7 +480,7 @@ export function useStatMode({
 
       const table = await bitable.base.getTableById(reportTableId);
       const reportField = await table.getField(reportFieldId);
-      await reportField.setValue(targetRecordId, statReportMd);
+      await reportField.setValue(targetRecordId, currentReportMd);
 
       // 写入测试结论字段
       if (reportConclusionFieldId) {
@@ -467,7 +501,7 @@ export function useStatMode({
       setStatError('写入失败，请检查记录 ID/字段权限');
       setStatStatus('');
     }
-  }, [statReportMd, statWriteRecordId, reportTableId, reportFieldId, reportConclusionFieldId, selectedTestName, pdfTableId, pdfViewId, primaryFieldId, selectedStatRecords, statTestType, statGroupSize, statCountWarning, statSampleName]);
+  }, [statReportMd, statReportForTestName, statWriteRecordId, reportTableId, reportFieldId, reportConclusionFieldId, selectedTestName, pdfTableId, pdfViewId, primaryFieldId, selectedStatRecords, statTestType, statGroupSize, statCountWarning, statSampleName]);
 
   return {
     statRecords,

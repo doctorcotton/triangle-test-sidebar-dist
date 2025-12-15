@@ -116,20 +116,29 @@ export async function buildPdf({
       color: rgb(0.5, 0.5, 0.5)
     });
 
-    // 测试信息区域（三栏均分）
+    // 测试信息区域（灵活布局）
     const infoY = timeY - 32;
-    const infoColWidth = (pageSize[0] - margin * 2) / 3;
     const labelColor = rgb(0.5, 0.5, 0.5);
     const valueColor = rgb(0.15, 0.15, 0.15);
 
+    // 测试名称：左对齐
     summary.drawText('测试名称', { x: margin, y: infoY, size: 8, font, color: labelColor });
     summary.drawText(testName || '-', { x: margin, y: infoY - 16, size: 10, font, color: valueColor });
 
-    summary.drawText('测试样品', { x: margin + infoColWidth, y: infoY, size: 8, font, color: labelColor });
-    summary.drawText(testSampleName || '-', { x: margin + infoColWidth, y: infoY - 16, size: 10, font, color: valueColor });
+    // 测试样品：居中偏左，使用固定间距
+    const testSampleX = margin + 200;
+    summary.drawText('测试样品', { x: testSampleX, y: infoY, size: 8, font, color: labelColor });
+    summary.drawText(testSampleName || '-', { x: testSampleX, y: infoY - 16, size: 10, font, color: valueColor });
 
-    summary.drawText('测试类型', { x: margin + infoColWidth * 2, y: infoY, size: 8, font, color: labelColor });
-    summary.drawText(testSampleType || '-', { x: margin + infoColWidth * 2, y: infoY - 16, size: 10, font, color: valueColor });
+    // 测试类型：右对齐
+    const testTypeLabel = '测试类型';
+    const testTypeValue = testSampleType || '-';
+    const testTypeLabelWidth = font.widthOfTextAtSize(testTypeLabel, 8);
+    const testTypeValueWidth = font.widthOfTextAtSize(testTypeValue, 10);
+    const testTypeLabelX = pageSize[0] - margin - testTypeLabelWidth;
+    const testTypeValueX = pageSize[0] - margin - testTypeValueWidth;
+    summary.drawText(testTypeLabel, { x: testTypeLabelX, y: infoY, size: 8, font, color: labelColor });
+    summary.drawText(testTypeValue, { x: testTypeValueX, y: infoY - 16, size: 10, font, color: valueColor });
 
     // 表格区域
     const tableTop = infoY - 52;
