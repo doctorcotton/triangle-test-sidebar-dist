@@ -1,13 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PdfMode from './components/PdfMode';
 import StatMode from './components/StatMode';
 import ConfigMode from './components/ConfigMode';
 import { useConfig } from './hooks/useConfig';
+import { loadChineseFont } from './utils/fontUtils';
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<'pdf' | 'stat' | 'config'>('pdf');
   const [primaryFieldId, setPrimaryFieldId] = useState<string>('');
   const config = useConfig(mode);
+
+  // 应用启动时后台预加载字体
+  useEffect(() => {
+    console.log('[App] 开始后台预加载中文字体...');
+    loadChineseFont()
+      .then((fontBytes) => {
+        if (fontBytes) {
+          console.log('[App] ✓ 字体预加载成功，大小:', fontBytes.byteLength, 'bytes');
+        } else {
+          console.warn('[App] 字体预加载失败，将在生成PDF时重试');
+        }
+      })
+      .catch((err) => {
+        console.warn('[App] 字体预加载出错:', err);
+      });
+  }, []);
 
   const statProps = {
     statTableId: config.statTableId,

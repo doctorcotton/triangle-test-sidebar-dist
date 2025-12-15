@@ -57,6 +57,7 @@ export function useStatMode({
   const [statStatus, setStatStatus] = useState<string>('');
   const [statWriteRecordId, setStatWriteRecordId] = useState<string>('');
   const [statTestSearch, setStatTestSearch] = useState<string>('');
+  const [timeRange, setTimeRange] = useState<'2weeks' | '1month' | '2months' | '3months'>('2weeks');
 
   const availableTestNames = useMemo(() => {
     const map: Record<string, number> = {};
@@ -187,9 +188,28 @@ export function useStatMode({
     return '';
   }, [statSummary.total, statExpectedTotal, effectiveStatGroupSize]);
 
+  // 计算时间范围的起始时间戳
+  const getTimeRangeStartTimestamp = useCallback((range: '2weeks' | '1month' | '2months' | '3months'): number => {
+    const now = Date.now();
+    const ranges = {
+      '2weeks': 14 * 24 * 60 * 60 * 1000, // 14天
+      '1month': 30 * 24 * 60 * 60 * 1000, // 30天
+      '2months': 60 * 24 * 60 * 60 * 1000, // 60天
+      '3months': 90 * 24 * 60 * 60 * 1000 // 90天
+    };
+    return now - ranges[range];
+  }, []);
+
   const loadStatData = useCallback(async () => {
     setStatError('');
-    setStatStatus('正在读取统计数据...');
+    const timeRangeStart = getTimeRangeStartTimestamp(timeRange);
+    const timeRangeLabel = {
+      '2weeks': '最近2周',
+      '1month': '最近1个月',
+      '2months': '最近2个月',
+      '3months': '最近3个月'
+    }[timeRange];
+    setStatStatus(`正在读取统计数据（${timeRangeLabel}）...`);
     setStatLoading(true);
     setStatReportMd('');
     try {
@@ -203,6 +223,8 @@ export function useStatMode({
         return;
       }
 
+      // 获取字段对象（一次性获取，避免重复调用）
+      setStatStatus(`正在准备批量读取（${timeRangeLabel}）...`);
       const linkField = await table.getField(statLinkFieldId);
       const groupField = await table.getField(statGroupFieldId);
       const answerField = await table.getField(statAnswerFieldId);
@@ -218,84 +240,107 @@ export function useStatMode({
       }
       let detectedSampleType = '';
 
+      // 批量获取字段值：使用 Promise.all 并行获取
+      const validRecordIds = recordIds.filter((id): id is string => !!id);
+      const totalCount = validRecordIds.length;
+      setStatStatus(`正在批量读取记录数据（${timeRangeLabel}）... 0/${totalCount}`);
+
       const temp: StatRecord[] = [];
-      for (const rid of recordIds) {
-        if (!rid) continue;
-        try {
-          let updatedAt = 0;
+      
+      // 批量处理：每次处理50条记录，避免一次性处理太多导致内存问题
+      const batchSize = 50;
+      for (let batchStart = 0; batchStart < validRecordIds.length; batchStart += batchSize) {
+        const batchEnd = Math.min(batchStart + batchSize, validRecordIds.length);
+        const batchIds = validRecordIds.slice(batchStart, batchEnd);
+        
+        setStatStatus(`正在批量读取记录数据（${timeRangeLabel}）... ${batchStart}/${totalCount}`);
+        
+        // 并行获取这一批记录的所有字段值
+        const batchPromises = batchIds.map(async (rid) => {
           try {
-            const recMeta = (await (table as any)?.getRecord?.(rid)) || null;
-            updatedAt = (recMeta as any)?.updatedAt || 0;
-          } catch {
-            updatedAt = 0;
-          }
-          let createdAt = 0;
-          try {
-            const createdRaw = await createdField.getValue(rid);
-            createdAt = toTimestamp(createdRaw);
-          } catch {
-            createdAt = 0;
-          }
+            // 并行获取所有字段值
+            const [
+              updatedAtResult,
+              createdRaw,
+              testNameRaw,
+              groupRaw,
+              answerRaw,
+              feedbackRaw,
+              modifierRaw,
+              sampleTypeRaw
+            ] = await Promise.all([
+              // 获取更新时间
+              (async () => {
+                try {
+                  const recMeta = (await (table as any)?.getRecord?.(rid)) || null;
+                  return (recMeta as any)?.updatedAt || 0;
+                } catch {
+                  return 0;
+                }
+              })(),
+              // 获取创建时间
+              createdField.getValue(rid).catch(() => null),
+              // 获取其他字段
+              linkField.getValue(rid).catch(() => null),
+              groupField.getValue(rid).catch(() => null),
+              answerField.getValue(rid).catch(() => null),
+              feedbackField.getValue(rid).catch(() => null),
+              modifierField.getValue(rid).catch(() => null),
+              sampleTypeField ? sampleTypeField.getValue(rid).catch(() => null) : Promise.resolve(null)
+            ]);
 
-          const testNameRaw = await linkField.getValue(rid);
-          const testName = toText(testNameRaw);
-          const groupRaw = await groupField.getValue(rid);
-          const groupText = toText(groupRaw).toUpperCase() as GroupKey;
-          if (!['A1', 'A2', 'A3', 'B1', 'B2', 'B3'].includes(groupText)) {
-            continue;
-          }
+            const updatedAt = updatedAtResult;
+            const createdAt = createdRaw ? toTimestamp(createdRaw) : 0;
 
-          const answerRaw = await answerField.getValue(rid);
-          const answer = parseSelectOptionName(answerRaw);
+            // 时间过滤：只处理创建时间在时间范围内的记录
+            if (createdAt > 0 && createdAt < timeRangeStart) {
+              return null;
+            }
 
-          const correctFieldId = statCorrectFieldMap[groupText];
-          if (!correctFieldCache[groupText]) {
-            correctFieldCache[groupText] = await table.getField(correctFieldId);
-          }
-          const correctRaw = await correctFieldCache[groupText]!.getValue(rid);
-          const correct = parseSelectOptionName(correctRaw) || toText(correctRaw);
+            const testName = toText(testNameRaw);
+            const groupText = toText(groupRaw).toUpperCase() as GroupKey;
+            if (!['A1', 'A2', 'A3', 'B1', 'B2', 'B3'].includes(groupText)) {
+              return null;
+            }
 
-          let feedback = '';
-          let modifier = '';
-          try {
-            const fbRaw = await feedbackField.getValue(rid);
-            feedback = toText(fbRaw);
-          } catch {
-            feedback = '';
-          }
-          try {
-            const modifierRaw = await modifierField.getValue(rid);
-            modifier = parseUserName(modifierRaw);
-          } catch {
-            modifier = '';
-          }
+            const answer = parseSelectOptionName(answerRaw);
+            const correctFieldId = statCorrectFieldMap[groupText];
+            if (!correctFieldCache[groupText]) {
+              correctFieldCache[groupText] = await table.getField(correctFieldId);
+            }
+            const correctRaw = await correctFieldCache[groupText]!.getValue(rid).catch(() => null);
+            const correct = correctRaw ? (parseSelectOptionName(correctRaw) || toText(correctRaw)) : '';
 
-          if (!detectedSampleType && sampleTypeField) {
-            try {
-              const sampleTypeRaw = await sampleTypeField.getValue(rid);
+            const feedback = feedbackRaw ? toText(feedbackRaw) : '';
+            const modifier = modifierRaw ? parseUserName(modifierRaw) : '';
+
+            if (!detectedSampleType && sampleTypeRaw) {
               const sampleTypeText = toText(sampleTypeRaw);
               if (sampleTypeText) {
                 detectedSampleType = sampleTypeText;
               }
-            } catch {
-              // ignore
             }
-          }
 
-          temp.push({
-            recordId: rid,
-            testName,
-            groupKey: groupText,
-            answer,
-            correct,
-            modifier,
-            feedback,
-            updatedAt,
-            createdAt
-          });
-        } catch (e) {
-          console.warn('[stat] 读取记录失败', rid, e);
-        }
+            return {
+              recordId: rid,
+              testName,
+              groupKey: groupText,
+              answer,
+              correct,
+              modifier,
+              feedback,
+              updatedAt,
+              createdAt
+            } as StatRecord;
+          } catch (e) {
+            console.warn('[stat] 读取记录失败', rid, e);
+            return null;
+          }
+        });
+
+        const batchResults = await Promise.all(batchPromises);
+        const validResults = batchResults.filter((r): r is StatRecord => r !== null);
+        temp.push(...validResults);
       }
 
       setStatRecords(temp);
@@ -329,7 +374,14 @@ export function useStatMode({
           setSelectedTestName(sortedNames[0]);
         }
       }
-      setStatStatus(`读取完成，共 ${temp.length} 条记录`);
+      const filteredCount = temp.length;
+      const totalFiltered = recordIds.length;
+      setStatStatus(`读取完成，共 ${filteredCount} 条记录（${timeRangeLabel}，从 ${totalFiltered} 条中筛选）`);
+      
+      // 记录数量警告
+      if (filteredCount > 10000) {
+        console.warn(`[stat] 警告：读取的记录数量较多（${filteredCount} 条），可能影响性能`);
+      }
     } catch (err) {
       console.error('[stat] 读取失败', err);
       setStatError('读取统计数据失败，请检查视图与字段配置。');
@@ -348,7 +400,9 @@ export function useStatMode({
     statCreatedAtFieldId,
     statCorrectFieldMap,
     testSampleTypeFieldId,
-    selectedTestName
+    selectedTestName,
+    timeRange,
+    getTimeRangeStartTimestamp
   ]);
 
   const buildReport = useCallback(() => {
@@ -520,6 +574,8 @@ export function useStatMode({
     setStatWriteRecordId,
     statTestSearch,
     setStatTestSearch,
+    timeRange,
+    setTimeRange,
     availableTestNames,
     selectedStatRecords,
     effectiveStatGroupSize,

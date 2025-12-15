@@ -55,6 +55,20 @@ export const StatMode: React.FC<StatModeProps> = (props) => {
             />
           </div>
           <div className="field">
+            <div className="field-label">时间范围</div>
+            <select
+              className="input"
+              value={stat.timeRange}
+              onChange={(e) => stat.setTimeRange(e.target.value as '2weeks' | '1month' | '2months' | '3months')}
+              style={{ minWidth: 120 }}
+            >
+              <option value="2weeks">最近2周</option>
+              <option value="1month">最近1个月</option>
+              <option value="2months">最近2个月</option>
+              <option value="3months">最近3个月</option>
+            </select>
+          </div>
+          <div className="field">
             <div className="field-label">每组人数</div>
             <input
               className="input"
